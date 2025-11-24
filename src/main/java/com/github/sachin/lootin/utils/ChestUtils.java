@@ -7,9 +7,6 @@ import java.util.List;
 
 import com.github.sachin.lootin.Lootin;
 import com.github.sachin.lootin.api.LootinInventoryOpenEvent;
-import com.github.sachin.lootin.compat.BetterStructuresListener;
-
-import com.github.sachin.lootin.compat.CustomStructuresListener;
 import com.github.sachin.lootin.utils.cooldown.Cooldown;
 import com.github.sachin.lootin.utils.storage.ItemSerializer;
 import com.github.sachin.lootin.utils.storage.LootinContainer;
@@ -143,25 +140,28 @@ public class ChestUtils{
 
         NamespacedKey playerLootKey = Lootin.getKey(player.getUniqueId().toString());
 
-        if(data.has(playerLootKey,PersistentDataType.STRING) || data.has(playerLootKey,DataType.ITEM_STACK_ARRAY)) return;
-
-        if(plugin.isRunningBetterStructures && plugin.getWorldManager().shouldResetSeed(player.getWorld().getName()) && data.has(LConstants.BETTER_STRUC_KEY,PersistentDataType.STRING)){
-
-            Chest chest = (Chest) container;
-            BetterStructuresListener.refillChest(chest);
+        if(data.has(playerLootKey,PersistentDataType.STRING) || data.has(playerLootKey,DataType.ITEM_STACK_ARRAY)) {
+            Lootin.getPlugin().debug("&e[DEBUG] fillLoot returning early - player already has loot");
             return;
         }
-        if(plugin.isRunningCustomStructures &&
-           plugin.getWorldManager().shouldResetSeed(player.getWorld().getName()) &&
-           data.has(LConstants.CUSTOM_STRUC_KEY,PersistentDataType.STRING)){
-            if(CustomStructuresListener.isMinecraftLoottable((Container) container)){
-                lootTableKey = CustomStructuresListener.getLoottables((Container) container).next().getName();
-            }
-            else{
-                CustomStructuresListener.reFillContainer((Container) container);
-                return;
-            }
-        }
+
+//        if(plugin.isRunningBetterStructures && plugin.getWorldManager().shouldResetSeed(player.getWorld().getName()) && data.has(LConstants.BETTER_STRUC_KEY,PersistentDataType.STRING)){
+//
+//            Chest chest = (Chest) container;
+//            BetterStructuresListener.refillChest(chest);
+//            return;
+//        }
+//        if(plugin.isRunningCustomStructures &&
+//           plugin.getWorldManager().shouldResetSeed(player.getWorld().getName()) &&
+//           data.has(LConstants.CUSTOM_STRUC_KEY,PersistentDataType.STRING)){
+//            if(CustomStructuresListener.isMinecraftLoottable((Container) container)){
+//                lootTableKey = CustomStructuresListener.getLoottables((Container) container).next().getName();
+//            }
+//            else{
+//                CustomStructuresListener.reFillContainer((Container) container);
+//                return;
+//            }
+//        }
         if(container.getLootTable() != null){
             lootTableKey = container.getLootTable().getKey().toString();
             data.set(LConstants.LOOTTABLE_KEY,PersistentDataType.STRING,lootTableKey);
@@ -432,6 +432,13 @@ public class ChestUtils{
         Cooldown cooldown = plugin.interactCooldown.get(player.getUniqueId());
         if (!cooldown.isTriggerable()) return false;
         cooldown.trigger();
+
+        // Check global shared mode setting
+        if (plugin.getConfig().getBoolean(LConstants.SHARED_MODE, false)) {
+            return openSharedContainer(lootable, player, location, containerType);
+        }
+
+        // Per-player logic (original behavior)
         if(containerType==ContainerType.MINECART){
             if(plugin.currentMinecartviewers.contains((StorageMinecart) lootable)){
                 plugin.sendPlayerMessage(LConstants.CHEST_EDITED,player);
@@ -486,5 +493,260 @@ public class ChestUtils{
 
     public static boolean isChest(Material mat){
         return mat==Material.CHEST || mat==Material.TRAPPED_CHEST;
+    }
+
+    /**
+     * Immediately refills a shared container (used by /lootin refill command)
+     */
+    public static boolean refillSharedContainer(BlockState state, Player player) {
+        if(!(state instanceof Lootable) || !(state instanceof Container)) {
+            return false;
+        }
+        Lootable lootable = (Lootable) state;
+        ContainerType containerType = getContainerType(lootable);
+        if(containerType == null) {
+            return false;
+        }
+        Block block = state.getBlock();
+        Inventory inventory = refillSharedInventory(containerType, block, null, ((Container)state).getInventory(), player);
+        return inventory != null && !inventory.isEmpty();
+    }
+
+    /**
+     * Immediately refills a shared minecart (used by /lootin refill command)
+     */
+    public static boolean refillSharedContainer(StorageMinecart minecart, Player player) {
+        Inventory inventory = refillSharedInventory(ContainerType.MINECART, null, minecart, minecart.getInventory(), player);
+        return inventory != null && !inventory.isEmpty();
+    }
+
+    /**
+     * Opens a shared container (not per-player) with global refill logic
+     */
+    private static boolean openSharedContainer(Lootable lootable, Player player, Location location, ContainerType containerType) {
+        plugin.debug("&e[DEBUG] Opening shared container for " + player.getName() + " at " + location);
+
+        Inventory inventory = null;
+        PersistentDataContainer data = null;
+        StorageMinecart minecart = null;
+        Block block = location.getBlock();
+        BlockState state = block.getState();
+
+        if (containerType == ContainerType.MINECART) {
+            minecart = (StorageMinecart) lootable;
+            inventory = minecart.getInventory();
+            data = minecart.getPersistentDataContainer();
+        } else if (containerType == ContainerType.CHEST) {
+            if (!(state instanceof Chest)) {
+                plugin.debug("&e[DEBUG] Expected chest but found " + state.getType());
+                return false;
+            }
+            Chest chest = (Chest) state;
+            inventory = chest.getBlockInventory();
+            data = chest.getPersistentDataContainer();
+        } else if (containerType == ContainerType.BARREL) {
+            if (!(state instanceof Barrel)) {
+                plugin.debug("&e[DEBUG] Expected barrel but found " + state.getType());
+                return false;
+            }
+            Barrel barrel = (Barrel) state;
+            inventory = barrel.getInventory();
+            data = barrel.getPersistentDataContainer();
+        } else {
+            plugin.debug("&e[DEBUG] Shared mode unsupported container type " + containerType);
+            return false;
+        }
+
+        if (data == null || inventory == null) {
+            plugin.debug("&e[DEBUG] Data or inventory missing for shared container");
+            return false;
+        }
+
+        boolean hasTimestamp = data.has(LConstants.SHARED_LAST_REFILL_KEY, PersistentDataType.LONG);
+        boolean needsRefill = !hasTimestamp || isSharedRefillRequired(data);
+        plugin.debug("&e[DEBUG] Shared refill check -> needsRefill: " + needsRefill);
+
+        if (needsRefill) {
+            inventory = refillSharedInventory(containerType, block, minecart, inventory, player);
+        }
+
+        plugin.debug("&e[DEBUG] About to open inventory, empty: " + inventory.isEmpty());
+        player.openInventory(inventory);
+        return true;
+    }
+
+    private static Inventory refillSharedInventory(ContainerType containerType, Block block, StorageMinecart minecart, Inventory fallbackInventory, Player player) {
+        long timestamp = System.currentTimeMillis();
+        boolean randomize = plugin.getConfig().getBoolean(LConstants.SHARED_RESET_SEED, true);
+
+        if (containerType == ContainerType.MINECART) {
+            return refillMinecartInventory(minecart, randomize, timestamp, player);
+        }
+
+        BlockState state = block.getState();
+        Inventory inventory;
+        Lootable lootState;
+        PersistentDataContainer data;
+
+        if (containerType == ContainerType.CHEST && state instanceof Chest) {
+            Chest chest = (Chest) state;
+            inventory = chest.getBlockInventory();
+            lootState = chest;
+            data = chest.getPersistentDataContainer();
+        } else if (containerType == ContainerType.BARREL && state instanceof Barrel) {
+            Barrel barrel = (Barrel) state;
+            inventory = barrel.getInventory();
+            lootState = barrel;
+            data = barrel.getPersistentDataContainer();
+        } else {
+            return fallbackInventory;
+        }
+
+        inventory.clear();
+
+        boolean filled = false;
+        if (randomize) {
+            filled = fillFromLootTable(player, lootState, data, inventory);
+        }
+        if (!filled) {
+            filled = restoreTemplate(inventory, data);
+        }
+
+        BlockState after = block.getState();
+        if (after instanceof Chest) {
+            Chest chest = (Chest) after;
+            chest.getPersistentDataContainer().set(LConstants.SHARED_LAST_REFILL_KEY, PersistentDataType.LONG, timestamp);
+            chest.update();
+            return chest.getBlockInventory();
+        }
+        if (after instanceof Barrel) {
+            Barrel barrel = (Barrel) after;
+            barrel.getPersistentDataContainer().set(LConstants.SHARED_LAST_REFILL_KEY, PersistentDataType.LONG, timestamp);
+            barrel.update();
+            return barrel.getInventory();
+        }
+        return fallbackInventory;
+    }
+
+    private static Inventory refillMinecartInventory(StorageMinecart minecart, boolean randomize, long timestamp, Player player) {
+        if (minecart == null) {
+            return null;
+        }
+        Inventory inventory = minecart.getInventory();
+        PersistentDataContainer data = minecart.getPersistentDataContainer();
+        inventory.clear();
+
+        boolean filled = false;
+        if (randomize) {
+            filled = fillFromLootTable(player, minecart, data, inventory);
+        }
+        if (!filled) {
+            filled = restoreTemplate(inventory, data);
+        }
+        if (!filled) {
+            plugin.debug("&e[DEBUG] Shared refill could not determine loot for minecart");
+        }
+
+        data.set(LConstants.SHARED_LAST_REFILL_KEY, PersistentDataType.LONG, timestamp);
+        return inventory;
+    }
+
+    private static boolean fillFromLootTable(Player player, Lootable lootable, PersistentDataContainer data, Inventory inventory) {
+        String key = ensureLootTableKey(lootable, data);
+        if (key == null) {
+            plugin.debug("&e[DEBUG] Shared refill missing loot table key");
+            return false;
+        }
+        plugin.debug("&e[DEBUG] Shared refill applying loot table: " + key);
+        inventory.clear();
+        plugin.getPrilib().getNmsHandler().fill(player, lootable, key, plugin.getWorldManager().shouldResetSeed(player.getWorld().getName()));
+        plugin.debug("&e[DEBUG] After fill, inventory empty: " + inventory.isEmpty());
+        // DON'T call update() - NMS fill already modified the live inventory
+        boolean success = !inventory.isEmpty();
+        plugin.debug("&e[DEBUG] fillFromLootTable result: " + success);
+        return success;
+    }
+
+    private static String ensureLootTableKey(Lootable lootable, PersistentDataContainer data) {
+        if (data.has(LConstants.LOOTTABLE_KEY, PersistentDataType.STRING)) {
+            return data.get(LConstants.LOOTTABLE_KEY, PersistentDataType.STRING);
+        }
+        if (lootable.getLootTable() != null) {
+            String tableKey = lootable.getLootTable().getKey().toString();
+            data.set(LConstants.LOOTTABLE_KEY, PersistentDataType.STRING, tableKey);
+            lootable.setLootTable(null);
+            if (lootable instanceof BlockState) {
+                ((BlockState) lootable).update();
+            }
+            return tableKey;
+        }
+        return null;
+    }
+
+    private static boolean restoreTemplate(Inventory inventory, PersistentDataContainer data) {
+        if (data.has(LConstants.DATA_KEY, DataType.ITEM_STACK_ARRAY)) {
+            ItemStack[] template = data.get(LConstants.DATA_KEY, DataType.ITEM_STACK_ARRAY);
+            plugin.debug("&e[DEBUG] Restoring template with " + template.length + " slots");
+            inventory.setContents(template);
+            plugin.debug("&e[DEBUG] After template restore, inventory empty: " + inventory.isEmpty());
+            return true;
+        }
+        if (data.has(LConstants.DATA_KEY, PersistentDataType.STRING)) {
+            List<ItemStack> items = ItemSerializer.deserialize(data.get(LConstants.DATA_KEY, PersistentDataType.STRING));
+            plugin.debug("&e[DEBUG] Restoring template (legacy) with " + items.size() + " items");
+            inventory.setContents(items.toArray(new ItemStack[0]));
+            updatePersistentStorageTypes(data, inventory, items, LConstants.DATA_KEY);
+            return true;
+        }
+        plugin.debug("&e[DEBUG] No template found in DATA_KEY");
+        return false;
+    }
+
+    /**
+     * Checks if shared container needs refill based on refill time
+     */
+    public static boolean isSharedRefillRequired(PersistentDataContainer data) {
+        if (!data.has(LConstants.SHARED_LAST_REFILL_KEY, PersistentDataType.LONG)) {
+            return false; // First time opening, no refill needed
+        }
+
+        long lastRefill = data.get(LConstants.SHARED_LAST_REFILL_KEY, PersistentDataType.LONG);
+        long currentTime = System.currentTimeMillis();
+        String refillTimeStr = plugin.getConfig().getString(LConstants.SHARED_REFILL_TIME, "7d");
+        long refillInterval = parseTimeString(refillTimeStr);
+        long diff = currentTime - lastRefill;
+        plugin.debug("&e[DEBUG] Shared refill check -> last:" + lastRefill + " diff:" + diff + " interval:" + refillInterval);
+
+        return diff >= refillInterval;
+    }
+
+    /**
+     * Parses time string like "7d", "12h", "30m", "60s" to milliseconds
+     */
+    private static long parseTimeString(String timeStr) {
+        java.util.regex.Matcher matcher = LConstants.TIME_UNITS_PATTERN.matcher(timeStr);
+        long totalMillis = 0;
+
+        while (matcher.find()) {
+            int value = Integer.parseInt(matcher.group(1));
+            String unit = matcher.group(2);
+
+            switch (unit) {
+                case "d":
+                    totalMillis += value * 24L * 60 * 60 * 1000;
+                    break;
+                case "h":
+                    totalMillis += value * 60L * 60 * 1000;
+                    break;
+                case "m":
+                    totalMillis += value * 60L * 1000;
+                    break;
+                case "s":
+                    totalMillis += value * 1000L;
+                    break;
+            }
+        }
+
+        return totalMillis > 0 ? totalMillis : 7L * 24 * 60 * 60 * 1000; // Default to 7 days
     }
 }

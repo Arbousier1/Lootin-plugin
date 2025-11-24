@@ -1,7 +1,20 @@
 # Configuration file for the AUTO REPLENISH feature for individual worlds.
+#
+# ====================================================================================================
+# IMPORTANT: This configuration only works when shared-mode is FALSE in config.yml
+# ====================================================================================================
+# When shared-mode is TRUE in config.yml:
+#   - All settings in this file are IGNORED
+#   - Chests use global shared mode with shared-refill-time from config.yml instead
+#
+# When shared-mode is FALSE in config.yml:
+#   - These settings control per-player refill timers
+#   - Each player gets their own unique loot that refills independently
+# ====================================================================================================
+#
 # By default, all worlds will use the settings defined in "default-configuration" for auto-replenishment.
 # To customize settings for a specific world, duplicate the "default-configuration" section and
-# rename it to match your world’s name, and adjust the settings as needed.
+# rename it to match your world's name, and adjust the settings as needed.
 # NOTE: The "max-refills" and "refill-time" options are applied on a per-player basis.
 #       Player requires "lootin.autoreplenish" permission for their auto replenish to work.
 
@@ -15,7 +28,7 @@ default-configuration:
   max-refills: -1
   # The time interval between loot container refills.
   # Supported units are days (d), hours (h), minutes (m), and seconds (s).
-  refill-time: 10d
+  refill-time: 14d
   # Resets the loot seed each time a container is refilled, randomizing the items for each refill.
   reset-seed-on-fill: true
   # list of loottables lootin will ignore, in other words containers with these loottables will not turn into lootin chests

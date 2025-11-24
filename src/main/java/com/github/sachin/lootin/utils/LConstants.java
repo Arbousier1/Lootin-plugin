@@ -13,6 +13,7 @@ public class LConstants {
     public static final NamespacedKey IDENTITY_KEY = new NamespacedKey(Lootin.getPlugin(), "Lootin");
     public static final NamespacedKey DATA_KEY = new NamespacedKey(Lootin.getPlugin(),"loot-container");
     public static final NamespacedKey CUSTOM_CONTAINER_KEY = new NamespacedKey(Lootin.getPlugin(),"custom-lootin-container");
+    public static final NamespacedKey SHARED_LAST_REFILL_KEY = new NamespacedKey(Lootin.getPlugin(),"shared-last-refill");
 
 
 
@@ -55,6 +56,9 @@ public class LConstants {
     public static final String BYPASS_GREIF_PLUGINS = "bypass-grief-plugins";
 
     public static final String KEEP_IN_MEMORY = "keep-in-memory";
+    public static final String SHARED_MODE = "shared-mode";
+    public static final String SHARED_REFILL_TIME = "shared-refill-time";
+    public static final String SHARED_RESET_SEED = "shared-reset-seed-on-fill";
 
     public static final String BLOCK_BREAK_WITHP = "messages.chestbreak-with-permission";
     public static final String BLOCK_BREAK_WITHOUTP = "messages.chestbreak-without-permission";

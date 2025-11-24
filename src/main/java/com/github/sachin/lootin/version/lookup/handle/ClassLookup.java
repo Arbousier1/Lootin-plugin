@@ -18,8 +18,8 @@ import com.github.sachin.lootin.version.lookup.handle.field.IFieldHandle;
 import com.github.sachin.lootin.version.lookup.handle.field.SafeFieldHandle;
 import com.github.sachin.lootin.version.lookup.handle.field.UnsafeDeclaredFieldHandle;
 import com.github.sachin.lootin.version.lookup.handle.field.UnsafeStaticFieldHandle;
-import com.syntaxphoenix.syntaxapi.reflection.ClassCache;
-import com.syntaxphoenix.syntaxapi.utils.java.Exceptions;
+//import com.syntaxphoenix.syntaxapi.reflection.ClassCache;
+//import com.syntaxphoenix.syntaxapi.utils.java.Exceptions;
 
 public class ClassLookup {
     
@@ -33,7 +33,15 @@ public class ClassLookup {
     private final HashMap<String, IFieldHandle<?>> fields = new HashMap<>();
 
     protected ClassLookup(final String classPath) throws IllegalAccessException {
-        this(ClassCache.getClass(classPath));
+        this(getClassByName(classPath));
+    }
+
+    private static Class<?> getClassByName(String classPath) {
+        try {
+            return Class.forName(classPath);
+        } catch (ClassNotFoundException e) {
+            return null;
+        }
     }
 
     protected ClassLookup(final Class<?> owner) throws IllegalAccessException {
@@ -304,7 +312,7 @@ public class ClassLookup {
             try {
                 methods.put(name, unreflect(method));
             } catch (IllegalAccessException | SecurityException e) {
-                System.out.println(Exceptions.stackTraceToString(e));
+                e.printStackTrace();
             }
         }
         return this;

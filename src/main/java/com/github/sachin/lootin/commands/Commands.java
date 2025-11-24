@@ -2,8 +2,6 @@ package com.github.sachin.lootin.commands;
 
 import com.github.sachin.lootin.Lootin;
 import com.github.sachin.lootin.compat.PaperCompat;
-import com.github.sachin.lootin.compat.rwg.RWGCompat;
-import com.github.sachin.lootin.compat.rwg.util.inventory.RwgInventory;
 import com.github.sachin.lootin.utils.*;
 
 import com.github.sachin.lootin.utils.storage.LootinContainer;
@@ -22,6 +20,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.loot.LootTable;
 import org.bukkit.loot.LootTables;
+import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataHolder;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.RayTraceResult;
@@ -91,7 +90,12 @@ public class Commands extends BaseCommand{
 
             if (!inventory.isEmpty()) {
                 ChestUtils.setLootinContainer(null, blockState, containerType);
-                ((PersistentDataHolder)blockState).getPersistentDataContainer().set(LConstants.CUSTOM_CONTAINER_KEY,PersistentDataType.INTEGER,1);
+                PersistentDataContainer pdc = ((PersistentDataHolder)blockState).getPersistentDataContainer();
+                pdc.set(LConstants.CUSTOM_CONTAINER_KEY, PersistentDataType.INTEGER, 1);
+
+                // Save initial items as template for refill (both per-player and shared mode)
+                pdc.set(LConstants.DATA_KEY, DataType.ITEM_STACK_ARRAY, inventory.getContents());
+
                 blockState.update();
                 plugin.sendPlayerMessage("&a" + containerType.name() + " set as lootin container successfully, the contents are per player now!", player);
             } else {
@@ -108,7 +112,12 @@ public class Commands extends BaseCommand{
             StorageMinecart minecart = (StorageMinecart) raytrace.getHitEntity();
             if (!minecart.getInventory().isEmpty()) {
                 ChestUtils.setLootinContainer(minecart, null, ContainerType.MINECART);
-                minecart.getPersistentDataContainer().set(LConstants.CUSTOM_CONTAINER_KEY,PersistentDataType.INTEGER,1);
+                PersistentDataContainer pdc = minecart.getPersistentDataContainer();
+                pdc.set(LConstants.CUSTOM_CONTAINER_KEY, PersistentDataType.INTEGER, 1);
+
+                // Save initial items as template for refill (both per-player and shared mode)
+                pdc.set(LConstants.DATA_KEY, DataType.ITEM_STACK_ARRAY, minecart.getInventory().getContents());
+
                 plugin.sendPlayerMessage("&aMinecart set as lootin container successfully, the contents are per player now!", player);
             } else {
                 plugin.sendPlayerMessage("&cMinecart is empty!", player);
@@ -213,6 +222,85 @@ public class Commands extends BaseCommand{
         }
     }
 
+    @Subcommand("refill")
+    public void onRefillCommand(Player player) {
+        if(!player.hasPermission("lootin.command.refill")){
+            plugin.sendPlayerMessage(LConstants.NO_PERMISSION,player);
+            return;
+        }
+
+        plugin.debug("&e[DEBUG] Refill command executed by " + player.getName());
+
+        PersistentDataHolder holder = null;
+        RayTraceResult blockRay = player.rayTraceBlocks(4);
+        RayTraceResult entityRay = player.getWorld().rayTraceEntities(player.getEyeLocation(), player.getEyeLocation().getDirection(), 4,(en) -> en.getType()==EntityType.MINECART_CHEST);
+
+        if(blockRay != null && blockRay.getHitBlock().getState() instanceof PersistentDataHolder){
+            holder = (PersistentDataHolder) blockRay.getHitBlock().getState();
+            plugin.debug("&e[DEBUG] Found block holder: " + blockRay.getHitBlock().getType());
+        }
+        else if(entityRay != null && entityRay.getHitEntity() != null){
+            holder = entityRay.getHitEntity();
+            plugin.debug("&e[DEBUG] Found entity holder: " + entityRay.getHitEntity().getType());
+        }
+
+        if(holder == null) {
+            plugin.debug("&e[DEBUG] No holder found!");
+            plugin.sendPlayerMessage(LConstants.LOOK_AT_CONTAINER, player);
+            return;
+        }
+
+        PersistentDataContainer pdc = holder.getPersistentDataContainer();
+
+        // Check if it's a lootin container
+        boolean hasDataKey = pdc.has(LConstants.DATA_KEY);
+        boolean hasStorageKey = pdc.has(LConstants.STORAGE_DATA_KEY);
+        boolean hasIdentityKey = pdc.has(LConstants.IDENTITY_KEY);
+        boolean hasLootTableKey = pdc.has(LConstants.LOOTTABLE_KEY, PersistentDataType.STRING);
+        plugin.debug("&e[DEBUG] Has DATA_KEY: " + hasDataKey + ", Has STORAGE_DATA_KEY: " + hasStorageKey + ", Has IDENTITY_KEY: " + hasIdentityKey + ", Has LOOTTABLE_KEY: " + hasLootTableKey);
+
+        if(!hasDataKey && !hasStorageKey && !hasIdentityKey && !hasLootTableKey) {
+            plugin.sendPlayerMessage("&cThis is not a lootin container!", player);
+            return;
+        }
+
+        // In shared mode, immediately refill the container
+        if(plugin.getConfig().getBoolean(LConstants.SHARED_MODE, false)) {
+            plugin.debug("&e[DEBUG] Shared mode - performing immediate refill");
+            boolean success = refillContainerNow(holder, player);
+            if(success) {
+                plugin.sendPlayerMessage("&aContainer refilled successfully!", player);
+            } else {
+                plugin.sendPlayerMessage("&cFailed to refill container!", player);
+            }
+            return;
+        }
+
+        // In per-player mode, reset the refill timer to force refill on next open
+        boolean hadRefillKey = pdc.has(LConstants.SHARED_LAST_REFILL_KEY, PersistentDataType.LONG);
+        plugin.debug("&e[DEBUG] Had SHARED_LAST_REFILL_KEY: " + hadRefillKey);
+        pdc.remove(LConstants.SHARED_LAST_REFILL_KEY);
+
+        // Update the block/entity state
+        if(holder instanceof BlockState) {
+            ((BlockState) holder).update();
+            plugin.debug("&e[DEBUG] BlockState updated");
+        }
+
+        plugin.sendPlayerMessage("&aRefill timer reset! Container will refill on next open.", player);
+    }
+
+    private boolean refillContainerNow(PersistentDataHolder holder, Player player) {
+        if(holder instanceof StorageMinecart) {
+            StorageMinecart minecart = (StorageMinecart) holder;
+            return ChestUtils.refillSharedContainer(minecart, player);
+        } else if(holder instanceof BlockState) {
+            BlockState state = (BlockState) holder;
+            return ChestUtils.refillSharedContainer(state, player);
+        }
+        return false;
+    }
+
     private LootinContainer getTargetContainer(Player player){
         LootinContainer lootinContainer = null;
         PersistentDataHolder holder = null;
@@ -238,46 +326,46 @@ public class Commands extends BaseCommand{
     }
 
 
-    @Subcommand("rwg loottable")
-    public void onRwgLoottableCommand(Player player){
-        if(!testRwg(player)) {
-            return;
-        }
-        RWGCompat compat = plugin.rwgCompat;
-        RwgInventory inventory = new RwgInventory(compat.getHeads(), compat.getApi().getChestStorage());
-        inventory.populate();
-        player.openInventory(inventory.getInventory());
-    }
+//    @Subcommand("rwg loottable")
+//    public void onRwgLoottableCommand(Player player){
+//        if(!testRwg(player)) {
+//            return;
+//        }
+//        RWGCompat compat = plugin.rwgCompat;
+//        RwgInventory inventory = new RwgInventory(compat.getHeads(), compat.getApi().getChestStorage());
+//        inventory.populate();
+//        player.openInventory(inventory.getInventory());
+//    }
+//
+//    @Subcommand("rwg elytra")
+//    public void onRwgElytraCommand(Player player) {
+//        if(!testRwg(player)) {
+//            return;
+//        }
+//        ItemStack itemStack = new ItemStack(Material.OAK_SIGN);
+//        ItemMeta meta = itemStack.getItemMeta();
+//        meta.setDisplayName(ChatColor.GOLD + "RWG Elytra ItemFrame");
+//        meta.getPersistentDataContainer().set(LConstants.RWG_IDENTITY_KEY, PersistentDataType.BYTE, (byte) 0);
+//        itemStack.setItemMeta(meta);
+//        player.getInventory().addItem(itemStack);
+//        player.sendMessage(plugin.getPrefix() + ChatColor.GREEN + "You received a Lootin Elytra ItemFrame Placeholder for RWG schematics");
+//    }
+//
+//    private boolean testRwg(Player player) {
+//        if(!player.hasPermission("lootin.command.rwg.loottable")){
+//            plugin.sendPlayerMessage(LConstants.NO_PERMISSION,player);
+//            return false;
+//        }
+//        RWGCompat compat = plugin.rwgCompat;
+//        if(compat == null){
+//            player.sendMessage(plugin.getPrefix()+ChatColor.RED+"You need Realistic World Generator plugin installed to use this command");
+//            return false;
+//        }
+//        if(compat.isSetupFailed()) {
+//            player.sendMessage(plugin.getPrefix() + ChatColor.RED + "This feature is not available because the addon setup failed");
+//            return false;
+//        }
+//        return true;
+//    }
 
-    @Subcommand("rwg elytra")
-    public void onRwgElytraCommand(Player player) {
-        if(!testRwg(player)) {
-            return;
-        }
-        ItemStack itemStack = new ItemStack(Material.OAK_SIGN);
-        ItemMeta meta = itemStack.getItemMeta();
-        meta.setDisplayName(ChatColor.GOLD + "RWG Elytra ItemFrame");
-        meta.getPersistentDataContainer().set(LConstants.RWG_IDENTITY_KEY, PersistentDataType.BYTE, (byte) 0);
-        itemStack.setItemMeta(meta);
-        player.getInventory().addItem(itemStack);
-        player.sendMessage(plugin.getPrefix() + ChatColor.GREEN + "You received a Lootin Elytra ItemFrame Placeholder for RWG schematics");
-    }
-
-    private boolean testRwg(Player player) {
-        if(!player.hasPermission("lootin.command.rwg.loottable")){
-            plugin.sendPlayerMessage(LConstants.NO_PERMISSION,player);
-            return false;
-        }
-        RWGCompat compat = plugin.rwgCompat;
-        if(compat == null){
-            player.sendMessage(plugin.getPrefix()+ChatColor.RED+"You need Realistic World Generator plugin installed to use this command");
-            return false; 
-        }
-        if(compat.isSetupFailed()) {
-            player.sendMessage(plugin.getPrefix() + ChatColor.RED + "This feature is not available because the addon setup failed");
-            return false;
-        }
-        return true;
-    }
-    
 }

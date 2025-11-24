@@ -7,7 +7,6 @@ import java.util.regex.Matcher;
 
 import com.github.sachin.lootin.commands.Commands;
 import com.github.sachin.lootin.compat.*;
-import com.github.sachin.lootin.compat.rwg.RWGCompat;
 import com.github.sachin.lootin.compat.scheduler.BukkitScheduler;
 import com.github.sachin.lootin.compat.scheduler.PaperScheduler;
 import com.github.sachin.lootin.compat.scheduler.Scheduler;
@@ -44,7 +43,6 @@ public final class Lootin extends JavaPlugin {
     private PaperCommandManager commandManager;
 
     private Scheduler scheduler;
-    public RWGCompat rwgCompat;
     public List<Location> currentChestviewers = new ArrayList<>();
     public List<StorageMinecart> currentMinecartviewers = new ArrayList<>();
 
@@ -61,10 +59,6 @@ public final class Lootin extends JavaPlugin {
 
     public boolean isRunningPaper;
 
-    public boolean isRunningBetterStructures = false;
-    public boolean isRunningCustomStructures = false;
-
-    public boolean isRunningValhallaMMO = false;
     public boolean isRunningWG;
 
     private WGFlag WGflag;
@@ -143,35 +137,6 @@ public final class Lootin extends JavaPlugin {
         pm.registerEvents(new ChestEvents(), plugin);
         pm.registerEvents(new ItemFrameListener(),plugin);
         pm.registerEvents(new LootGenerateListener(),plugin);
-        if(pm.isPluginEnabled("CustomStructures")){
-            this.isRunningCustomStructures = true;
-            getLogger().info("Found custom structures, registering listeners...");
-
-            pm.registerEvents(new CustomStructuresListener(), plugin);
-        }
-        if(pm.isPluginEnabled("Oh_the_dungeons_youll_go")){
-            getLogger().info("Found OhTheDungeons, registering listeners...");
-            pm.registerEvents(new OTDLootListener(), plugin);
-        }
-        if(pm.isPluginEnabled("Realistic_World")){
-            getLogger().info("Found RealisticWorldGenerator, trying to register compatibility addon...");
-            this.rwgCompat = new RWGCompat();
-            if (rwgCompat.enableRwgSupport(pm.getPlugin("Realistic_World"))) {
-                rwgCompat.setup();
-                getLogger().info("RealisticWorldGenerator addon successfully registered and installed");
-            } else {
-                getLogger().info("No need to register RealisticWorldGenerator compatibility addon");
-            }
-        }
-        if(pm.isPluginEnabled("BetterStructures")){
-            this.isRunningBetterStructures = true;
-            getLogger().info("Found BetterStructures, registering listeners...");
-            pm.registerEvents(new BetterStructuresListener(),plugin);
-        }
-//        if(pm.isPluginEnabled("ValhallaMMO")){
-//            this.isRunningValhallaMMO = true;
-//            pm.registerEvents(new ValhallaMMOListner(),plugin);
-//        }
         if(isRunningProtocolLib){
             try{
                 getLogger().info("Found ProtocolLib, trying to register meta data packet listener...");

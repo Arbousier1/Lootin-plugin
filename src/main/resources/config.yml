@@ -73,4 +73,29 @@ prevent-filling-containers:
 # once the cached data is cleared from memory, it is stored in Lootin/data folder
 keep-in-memory: 6000
 
-  
+# ====================================================================================================
+# SHARED MODE - Global toggle between two different loot systems
+# ====================================================================================================
+# When shared-mode is TRUE:
+#   - All chests behave like normal vanilla chests (globally shared for all players)
+#   - Uses shared-refill-time below for automatic refill timing
+#   - The auto-replenish settings in worlds.yml are IGNORED
+#
+# When shared-mode is FALSE:
+#   - Each player gets their own unique loot (per-player mode)
+#   - Uses auto-replenish settings from worlds.yml for individual player refill timers
+#   - The shared-refill-time below is IGNORED
+# ====================================================================================================
+shared-mode: true
+
+# Shared mode refill settings (only applies when shared-mode: true)
+# The refill interval between loot container refills for shared mode.
+# Supported units are days (d), hours (h), minutes (m), and seconds (s).
+# Example: 7d = 7 days, 12h = 12 hours, 30m = 30 minutes, 60s = 60 seconds
+shared-refill-time: 14d
+
+# Resets the loot seed each time a shared container is refilled, randomizing the items for each refill.
+# If false, containers will restore their original template items instead of randomizing.
+shared-reset-seed-on-fill: true
+
+

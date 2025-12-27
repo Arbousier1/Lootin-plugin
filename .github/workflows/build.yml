@@ -1,4 +1,4 @@
-name: Build and Upload Artifacts
+name: Java CI for Lootin-plugin
 
 on:
   push:
@@ -14,24 +14,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Set up JDK
+        uses: actions/setup-java@v4
         with:
-          node-version: '18'
+          java-version: '21'  # 根据你的项目需要调整版本
+          distribution: 'temurin'
           
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Build plugin
-        run: npm run build
+      - name: Build with Maven
+        run: mvn clean package -DskipTests
         
-      - name: Upload Lootin-plugin artifact
+      - name: Run tests
+        run: mvn test
+        
+      - name: Upload JAR artifact
         uses: actions/upload-artifact@v6.0.0
         with:
-          name: lootin-plugin-build
-          path: |
-            dist/
-            package.json
-            README.md
+          name: lootin-plugin-jar
+          path: target/*.jar
           retention-days: 30
           if-no-files-found: error
